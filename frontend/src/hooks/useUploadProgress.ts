@@ -33,6 +33,27 @@ export function useUploadProgress(taskId: string | null) {
   useEffect(() => {
     if (!taskId) return;
 
+    // 先从后端加载最新状态（用于恢复任务时）
+    fetch(`/api/upload/status/${taskId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.code === 200 && res.data) {
+          const d = res.data;
+          const total = d.total || 0;
+          const current = d.current || 0;
+          setState((prev) => ({
+            ...prev,
+            phase: d.phase || '',
+            current,
+            total,
+            percent: total > 0 ? Math.round((current / total) * 100) : 0,
+            message: d.message || '',
+            fileProgress: d.fileProgress || null,
+          }));
+        }
+      })
+      .catch(() => {});
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/upload/${taskId}`;
     console.log('[UploadProgress] Connecting to:', wsUrl);

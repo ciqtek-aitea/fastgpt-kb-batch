@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import LoginPage from './pages/LoginPage';
 import DatasetListPage from './pages/DatasetListPage';
 import DatasetDetailPage from './pages/DatasetDetailPage';
+import TaskProgressPage from './pages/TaskProgressPage';
 import { useAuth } from './hooks/useAuth';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<PrivateRoute><DatasetListPage /></PrivateRoute>} />
+          <Route path="/tasks" element={<PrivateRoute><TaskProgressPage /></PrivateRoute>} />
           <Route path="/dataset/:id" element={<PrivateRoute><DatasetDetailPage /></PrivateRoute>} />
         </Routes>
       </BrowserRouter>

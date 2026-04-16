@@ -6,6 +6,7 @@ import {
   SearchOutlined,
   LogoutOutlined,
   CloudUploadOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listDatasets } from '../api/datasets';
@@ -112,6 +113,7 @@ export default function DatasetListPage() {
           style={{ width: 200 }}
           allowClear
         />
+        <Button icon={<UnorderedListOutlined />} onClick={() => navigate('/tasks')}>进度中心</Button>
         <Button icon={<LogoutOutlined />} onClick={logout}>退出</Button>
         </div>
       </div>

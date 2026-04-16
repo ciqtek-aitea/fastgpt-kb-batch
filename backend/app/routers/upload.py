@@ -72,6 +72,21 @@ async def get_task_status(task_id: str, token: str = Depends(get_current_token))
     return {"code": 200, "data": status}
 
 
+@router.get("/tasks")
+async def list_tasks(token: str = Depends(get_current_token)):
+    """列出所有上传任务"""
+    tasks = []
+    for task_id, status in _task_status.items():
+        tasks.append({
+            "taskId": task_id,
+            "datasetId": _task_dataset.get(task_id, ""),
+            **status,
+        })
+    # 按创建时间倒序（没有时间戳，用列表原始顺序的逆序）
+    tasks.reverse()
+    return {"code": 200, "data": tasks}
+
+
 @router.post("/start")
 async def start_upload(req: UploadRequest, token: str = Depends(get_current_token)):
     """启动批量上传"""
