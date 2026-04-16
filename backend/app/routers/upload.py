@@ -21,6 +21,8 @@ logger = logging.getLogger("upload")
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 _tasks: dict[str, asyncio.Task] = {}
+_task_status: dict[str, dict] = {}  # task_id -> 最后一次进度快照
+_task_dataset: dict[str, str] = {}  # task_id -> dataset_id
 
 
 class UploadRequest(BaseModel):
@@ -61,10 +63,20 @@ async def preview_upload(req: UploadRequest, token: str = Depends(get_current_to
     return {"code": 200, "data": {"totalFiles": total_files, "totalSize": total_size, "files": preview_files}}
 
 
+@router.get("/status/{task_id}")
+async def get_task_status(task_id: str, token: str = Depends(get_current_token)):
+    """查询上传任务状态"""
+    status = _task_status.get(task_id)
+    if not status:
+        return {"code": 404, "message": "任务不存在"}
+    return {"code": 200, "data": status}
+
+
 @router.post("/start")
 async def start_upload(req: UploadRequest, token: str = Depends(get_current_token)):
     """启动批量上传"""
     task_id = secrets.token_urlsafe(16)
+    _task_dataset[task_id] = req.datasetId
 
     async def _run():
         await asyncio.sleep(1)  # 等待 WebSocket 连接
@@ -79,6 +91,7 @@ async def start_upload(req: UploadRequest, token: str = Depends(get_current_toke
             }
             if file_progress:
                 data["fileProgress"] = file_progress
+            _task_status[task_id] = data
             await progress_manager.broadcast(task_id, data)
 
         try:

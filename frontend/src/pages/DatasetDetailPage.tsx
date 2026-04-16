@@ -117,11 +117,38 @@ export default function DatasetDetailPage() {
       );
       // 设置 taskId 触发 WebSocket 连接，后端会等 1 秒再开始
       setTaskId(result.taskId);
+      // 保存到 localStorage，返回后可恢复进度
+      const activeMap = JSON.parse(localStorage.getItem('active_uploads') || '{}');
+      activeMap[id] = result.taskId;
+      localStorage.setItem('active_uploads', JSON.stringify(activeMap));
     } catch (e: any) {
       message.error(e.response?.data?.message || '启动上传失败');
       setUploading(false);
     }
   };
+
+  // 页面加载时恢复未完成的上传任务
+  useEffect(() => {
+    if (!id) return;
+    const activeMap = JSON.parse(localStorage.getItem('active_uploads') || '{}');
+    const savedTaskId = activeMap[id];
+    if (savedTaskId) {
+      // 查询后端任务状态，确认是否还在运行
+      fetch(`/api/upload/status/${savedTaskId}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.code === 200 && res.data?.phase && res.data.phase !== 'done') {
+            setTaskId(savedTaskId);
+            setUploading(true);
+          } else {
+            // 任务已完成或不存在，清理
+            delete activeMap[id];
+            localStorage.setItem('active_uploads', JSON.stringify(activeMap));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [id]);
 
   const isUploading = uploading && taskId;
   const isDone = uploadState.phase === 'done';
@@ -246,7 +273,11 @@ export default function DatasetDetailPage() {
             <Button
               style={{ marginTop: 12 }}
               block
-              onClick={() => { setUploading(false); setTaskId(null); setSelectedItems([]); }}
+              onClick={() => {
+                setUploading(false); setTaskId(null); setSelectedItems([]);
+                const activeMap = JSON.parse(localStorage.getItem('active_uploads') || '{}');
+                if (id) { delete activeMap[id]; localStorage.setItem('active_uploads', JSON.stringify(activeMap)); }
+              }}
             >
               重新上传
             </Button>
