@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Card, Empty, Spin, Row, Col, Breadcrumb, Input, Button } from 'antd';
+import { Card, Empty, Spin, Row, Col, Breadcrumb, Input, Button, Tag } from 'antd';
 import {
   BookOutlined,
   FolderOutlined,
   SearchOutlined,
   LogoutOutlined,
+  CloudUploadOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listDatasets } from '../api/datasets';
@@ -78,7 +79,18 @@ export default function DatasetListPage() {
     return <BookOutlined style={{ fontSize: 24, color: '#1677ff' }} />;
   };
 
+  // 获取活跃上传任务
+  const getActiveUploads = (): Record<string, string> => {
+    try {
+      return JSON.parse(localStorage.getItem('active_uploads') || '{}');
+    } catch {
+      return {};
+    }
+  };
+
   if (loading) return <Spin size="large" style={{ display: 'block', marginTop: 100 }} />;
+
+  const activeUploads = getActiveUploads();
 
   return (
     <div>
@@ -110,10 +122,23 @@ export default function DatasetListPage() {
         <Row gutter={[16, 16]}>
           {filtered.map((ds) => (
             <Col key={ds._id} xs={24} sm={12} md={8} lg={6}>
-              <Card hoverable onClick={() => handleItemClick(ds)}>
+              <Card
+                hoverable
+                onClick={() => handleItemClick(ds)}
+                style={activeUploads[ds._id] ? { borderColor: '#1677ff', borderWidth: 2 } : undefined}
+              >
                 <Card.Meta
                   avatar={getIcon(ds)}
-                  title={ds.name}
+                  title={
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {ds.name}
+                      {activeUploads[ds._id] && (
+                        <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                          <CloudUploadOutlined /> 上传中
+                        </Tag>
+                      )}
+                    </span>
+                  }
                   description={ds.intro || (ds.type === 'folder' ? '文件夹' : ds.vectorModel?.model)}
                 />
               </Card>

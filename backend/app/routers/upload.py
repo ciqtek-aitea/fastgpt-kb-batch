@@ -98,11 +98,13 @@ async def start_upload(req: UploadRequest, token: str = Depends(get_current_toke
             all_files: list[tuple[str, bytes]] = []
 
             for dir_path in req.directories:
+                dir_name = Path(dir_path).name
                 scan = upload_service.scan_directory(dir_path)
                 for rel_file in scan["files"]:
                     full = os.path.join(dir_path, rel_file)
                     with open(full, "rb") as f:
-                        all_files.append((rel_file, f.read()))
+                        # 保留顶层目录名，确保选中的文件夹本身也会被创建
+                        all_files.append((f"{dir_name}/{rel_file}", f.read()))
 
             for file_path in req.files:
                 fp = Path(file_path)
