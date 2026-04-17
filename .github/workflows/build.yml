@@ -61,11 +61,21 @@ jobs:
         working-directory: backend
         shell: bash
 
+      - name: Rename executable
+        shell: bash
+        run: |
+          cd backend/dist
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            mv fastgpt-kb-batch.exe fastgpt-kb-batch-windows.exe
+          else
+            mv fastgpt-kb-batch fastgpt-kb-batch-macos
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: fastgpt-kb-batch-${{ matrix.platform }}
-          path: backend/dist/fastgpt-kb-batch${{ matrix.ext }}
+          path: backend/dist/fastgpt-kb-batch-${{ matrix.platform }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -82,6 +92,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/fastgpt-kb-batch-macos/fastgpt-kb-batch
-            artifacts/fastgpt-kb-batch-windows/fastgpt-kb-batch.exe
+            artifacts/fastgpt-kb-batch-macos/fastgpt-kb-batch-macos
+            artifacts/fastgpt-kb-batch-windows/fastgpt-kb-batch-windows.exe
           generate_release_notes: true
