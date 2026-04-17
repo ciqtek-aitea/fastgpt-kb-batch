@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tabs, Form, Input, Button, message } from 'antd';
-import { UserOutlined, LockOutlined, KeyOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '../hooks/useAuth';
 
 export default function LoginPage() {
@@ -57,7 +57,6 @@ export default function LoginPage() {
                     placeholder="粘贴 fastgpt_token"
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
-                    prefix={<KeyOutlined />}
                   />
                   <Button
                     type="primary"
