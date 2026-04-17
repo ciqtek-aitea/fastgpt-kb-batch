@@ -52,8 +52,44 @@ async def batch_upload_from_files(
     """从前端接收的文件批量上传到 FastGPT
 
     file_entries: [(stripped_relative_path, file_bytes), ...]
+
+    增量上传：上传前查询知识库已有文件，跳过同名同路径的文件。
     """
-    result = {"uploaded": 0, "failed": []}
+    result = {"uploaded": 0, "skipped": 0, "failed": [], "failed_entries": []}
+
+    # ---- 查询知识库已有文件和文件夹（增量去重） ----
+    if progress_callback:
+        await progress_callback("scanning", 0, 1, "查询知识库已有文件...")
+
+    try:
+        existing_files, folder_id_map = await fastgpt_service.list_all_file_paths(token, dataset_id)
+    except Exception:
+        existing_files = set()
+        folder_id_map = {}
+
+    # 过滤掉已存在的文件
+    filtered_entries = []
+    for rel_path, file_bytes in file_entries:
+        if rel_path in existing_files:
+            result["skipped"] += 1
+        else:
+            filtered_entries.append((rel_path, file_bytes))
+
+    skipped_count = result["skipped"]
+    file_entries = filtered_entries
+
+    if progress_callback:
+        await progress_callback(
+            "scanning", 1, 1,
+            f"已有 {len(existing_files)} 个文件，跳过 {skipped_count} 个，需上传 {len(file_entries)} 个"
+            if skipped_count > 0 else
+            f"知识库无已有文件，共 {len(file_entries)} 个待上传",
+        )
+
+    if not file_entries:
+        if progress_callback:
+            await progress_callback("done", 0, 0, f"所有文件已存在，跳过 {skipped_count} 个")
+        return result
 
     # ---- 提取目录结构 ----
     if progress_callback:
@@ -81,14 +117,17 @@ async def batch_upload_from_files(
             await progress_callback("done", 0, 0, "没有可上传的文件")
         return result
 
-    # ---- 创建文件夹 ----
-    path_to_id: dict[str, str] = {}
+    # ---- 创建文件夹（复用已有文件夹） ----
+    path_to_id: dict[str, str] = dict(folder_id_map)  # 预填充已有文件夹
 
-    if dirs_sorted:
+    # 只创建不存在的文件夹
+    dirs_to_create = [d for d in dirs_sorted if d not in path_to_id]
+
+    if dirs_to_create:
         if progress_callback:
-            await progress_callback("creating_folders", 0, len(dirs_sorted), "创建文件夹...")
+            await progress_callback("creating_folders", 0, len(dirs_to_create), "创建文件夹...")
 
-        for i, dir_path in enumerate(dirs_sorted):
+        for i, dir_path in enumerate(dirs_to_create):
             parts = Path(dir_path).parts
             parent_collection_id = None
             if len(parts) > 1:
@@ -105,20 +144,27 @@ async def batch_upload_from_files(
 
             if progress_callback:
                 await progress_callback(
-                    "creating_folders", i + 1, len(dirs_sorted),
-                    f"已创建文件夹 {i + 1}/{len(dirs_sorted)}",
+                    "creating_folders", i + 1, len(dirs_to_create),
+                    f"已创建文件夹 {i + 1}/{len(dirs_to_create)}",
                 )
+    elif folder_id_map and progress_callback:
+        await progress_callback(
+            "creating_folders", len(folder_id_map), len(folder_id_map),
+            f"复用已有 {len(folder_id_map)} 个文件夹",
+        )
 
     # ---- 并发上传文件 ----
     if progress_callback:
-        await progress_callback("uploading", 0, total_files, "开始上传文件...")
+        await progress_callback("uploading", 0, total_files, f"开始上传 0/{total_files}...")
 
     semaphore = asyncio.Semaphore(concurrency)
     uploaded_count = 0
+    success_count = 0
+    fail_count = 0
     lock = asyncio.Lock()
 
     async def upload_one(rel_path: str, file_bytes: bytes):
-        nonlocal uploaded_count
+        nonlocal uploaded_count, success_count, fail_count
         async with semaphore:
             parent_dir = str(Path(rel_path).parent)
             collection_parent_id = path_to_id.get(parent_dir) if parent_dir and parent_dir != "." else None
@@ -135,12 +181,11 @@ async def batch_upload_from_files(
                 last_reported_pct = pct
 
                 if progress_callback:
-                    # 整体进度 = 已完成文件数 + 当前文件比例
                     async with lock:
                         overall_current = uploaded_count + sent / total
                     await progress_callback(
                         "uploading", overall_current, total_files,
-                        f"上传中 {filename} ({pct}%)",
+                        f"上传中 {uploaded_count + 1}/{total_files}: {filename} ({pct}%)",
                         file_progress={"name": filename, "sent": sent, "total": total, "percent": pct},
                     )
 
@@ -160,28 +205,36 @@ async def batch_upload_from_files(
                 )
                 async with lock:
                     uploaded_count += 1
-                    result["uploaded"] = uploaded_count
+                    success_count += 1
+                    result["uploaded"] = success_count
                 if progress_callback:
                     await progress_callback(
                         "uploading", uploaded_count, total_files,
-                        f"已上传 {uploaded_count}/{total_files}: {filename}",
+                        f"已完成 {uploaded_count}/{total_files}: {filename}",
                     )
             except Exception as e:
                 async with lock:
                     uploaded_count += 1
-                    result["failed"].append({"file": filename, "error": str(e)})
+                    fail_count += 1
+                    result["failed"].append({"file": rel_path, "error": str(e)})
+                    result["failed_entries"].append((rel_path, file_bytes))
                 if progress_callback:
                     await progress_callback(
                         "uploading", uploaded_count, total_files,
-                        f"上传失败 {filename}: {e}",
+                        f"已完成 {uploaded_count}/{total_files}: {filename} 失败",
                     )
 
     tasks = [upload_one(path, data) for path, data in file_entries]
     await asyncio.gather(*tasks)
 
-    success_count = result["uploaded"] - len(result["failed"])
-    msg = f"上传完成: 成功 {success_count}, 失败 {len(result['failed'])}"
+    failed_list = result["failed"]
+    msg = f"上传完成: 成功 {success_count}/{total_files}"
+    if fail_count > 0:
+        msg += f", 失败 {fail_count}"
     if progress_callback:
-        await progress_callback("done", uploaded_count, total_files, msg)
+        await progress_callback(
+            "done", uploaded_count, total_files, msg,
+            failed_files=failed_list if failed_list else None,
+        )
 
     return result

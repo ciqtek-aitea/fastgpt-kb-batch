@@ -15,7 +15,7 @@ from app.config import API_BASE
 # 通用请求工具
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES = 3
+_MAX_RETRIES = 5
 _RETRY_DELAY = 2  # 秒
 
 
@@ -269,6 +269,41 @@ async def list_collections(
         return resp.get("data", {"list": [], "total": 0})
 
 
+async def list_all_file_paths(token: str, dataset_id: str) -> tuple[set[str], dict[str, str]]:
+    """递归获取知识库中所有文件的路径集合 + 文件夹路径→id 映射
+
+    返回 (existing_files, folder_id_map):
+      - existing_files: {"folder/sub/file.pdf", "top.pdf"}
+      - folder_id_map: {"folder": "id1", "folder/sub": "id2"}
+    """
+    existing_files: set[str] = set()
+    folder_id_map: dict[str, str] = {}
+
+    async def _walk(parent_id: str | None, prefix: str):
+        page = 1
+        while True:
+            data = await list_collections(token, dataset_id, parent_id=parent_id, page=page, page_size=100)
+            items = data.get("list", [])
+            if not items:
+                break
+            for item in items:
+                name = item.get("name", "")
+                item_type = item.get("type", "")
+                item_id = item.get("_id", "")
+                path = f"{prefix}{name}" if prefix else name
+                if item_type == "folder":
+                    folder_id_map[path] = item_id
+                    await _walk(item_id, f"{path}/")
+                else:
+                    existing_files.add(path)
+            if len(items) < 100:
+                break
+            page += 1
+
+    await _walk(None, "")
+    return existing_files, folder_id_map
+
+
 async def create_folder(
     token: str,
     dataset_id: str,
@@ -445,22 +480,30 @@ async def upload_file(
 
 
 async def _get_presigned_upload_url(token: str, filename: str, dataset_id: str) -> dict:
-    """获取数据集 S3 预签名上传 URL
+    """获取数据集 S3 预签名上传 URL（带重试）
 
     返回: {url, key, headers, maxSize}
     """
     url = f"{API_BASE}/core/dataset/presignDatasetFilePostUrl"
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            url,
-            json={"filename": filename, "datasetId": dataset_id},
-            headers=_headers(token),
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        if result.get("code") != 200:
-            raise Exception(f"获取上传 URL 失败: {result}")
-        return result["data"]
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    url,
+                    json={"filename": filename, "datasetId": dataset_id},
+                    headers=_headers(token),
+                )
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("code") != 200:
+                    raise Exception(f"获取上传 URL 失败: {result}")
+                return result["data"]
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+            import asyncio
+            await asyncio.sleep(_RETRY_DELAY)
+    raise last_exc  # type: ignore[misc]
 
 
 async def _upload_to_s3(
@@ -469,7 +512,7 @@ async def _upload_to_s3(
     extra_headers: dict,
     file_progress_fn=None,
 ) -> None:
-    """直接上传文件到 S3（使用预签名 URL，支持分块进度回调）"""
+    """直接上传文件到 S3（使用预签名 URL，支持分块进度回调，带重试）"""
     total = len(file_bytes)
     chunk_size = 1024 * 1024  # 1MB 分块
 
@@ -482,9 +525,18 @@ async def _upload_to_s3(
             yield chunk
 
     headers = {**extra_headers, "Content-Length": str(total)}
-    async with httpx.AsyncClient(timeout=600) as client:
-        resp = await client.put(presigned_url, content=content_stream(), headers=headers)
-        resp.raise_for_status()
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=600) as client:
+                resp = await client.put(presigned_url, content=content_stream(), headers=headers)
+                resp.raise_for_status()
+                return
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+            import asyncio
+            await asyncio.sleep(_RETRY_DELAY)
+    raise last_exc  # type: ignore[misc]
 
 
 async def _create_collection_by_file_id(
@@ -499,7 +551,7 @@ async def _create_collection_by_file_id(
     index_prefix_title: bool = True,
     image_index: bool = True,
 ) -> str:
-    """通过 fileId 创建集合（文件已上传到 S3）"""
+    """通过 fileId 创建集合（文件已上传到 S3，带重试）"""
     url = f"{API_BASE}/core/dataset/collection/create/fileId"
     body: dict = {
         "datasetId": dataset_id,
@@ -513,13 +565,21 @@ async def _create_collection_by_file_id(
     if parent_id:
         body["parentId"] = parent_id
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(url, json=body, headers=_headers(token))
-        resp.raise_for_status()
-        result = resp.json()
-        if result.get("code") != 200:
-            raise Exception(f"创建集合失败: {result}")
-        return result.get("data", {}).get("collectionId", "")
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(url, json=body, headers=_headers(token))
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("code") != 200:
+                    raise Exception(f"创建集合失败: {result}")
+                return result.get("data", {}).get("collectionId", "")
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+            import asyncio
+            await asyncio.sleep(_RETRY_DELAY)
+    raise last_exc  # type: ignore[misc]
 
 
 async def upload_file_via_s3(

@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 venv/
 sessions.json
+dingtalk_bindings.json
+.env
 
 # Frontend
 frontend/node_modules/

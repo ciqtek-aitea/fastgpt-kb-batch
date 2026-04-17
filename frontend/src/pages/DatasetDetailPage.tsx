@@ -46,6 +46,7 @@ export default function DatasetDetailPage() {
   // 上传
   const [taskId, setTaskId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const uploadState = useUploadProgress(taskId);
 
   useEffect(() => {
@@ -102,6 +103,31 @@ export default function DatasetDetailPage() {
 
   const handleRemove = (path: string) => {
     setSelectedItems((prev) => prev.filter((s) => s.path !== path));
+  };
+
+  const handleRetry = async () => {
+    if (!taskId) return;
+    setRetrying(true);
+    try {
+      const resp = await fetch('/api/upload/retry', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('session_token')}`,
+        },
+        body: JSON.stringify({ taskId }),
+      });
+      const res = await resp.json();
+      if (res.code === 200 && res.data?.taskId) {
+        setTaskId(res.data.taskId);
+      } else {
+        message.error(res.message || '重试失败');
+      }
+    } catch {
+      message.error('重试请求失败');
+    } finally {
+      setRetrying(false);
+    }
   };
 
   const handleUpload = async () => {
@@ -269,6 +295,33 @@ export default function DatasetDetailPage() {
               {uploadState.summary.failed > 0 && <Tag color="red">失败: {uploadState.summary.failed}</Tag>}
             </div>
           )}
+
+          {/* 失败文件列表 + 重试按钮 */}
+          {isDone && uploadState.failedFiles.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>失败文件:</div>
+              <div style={{ maxHeight: 150, overflow: 'auto', background: '#fff2f0', borderRadius: 4, padding: '4px 8px' }}>
+                {uploadState.failedFiles.map((f, i) => (
+                  <div key={i} style={{ fontSize: 12, padding: '2px 0', display: 'flex', gap: 8 }}>
+                    <span style={{ color: '#ff4d4f', flexShrink: 0 }}>✗</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.file}</span>
+                    <span style={{ color: '#999', flexShrink: 0, fontSize: 11 }}>{f.error}</span>
+                  </div>
+                ))}
+              </div>
+              <Button
+                style={{ marginTop: 8 }}
+                type="primary"
+                danger
+                block
+                loading={retrying}
+                onClick={handleRetry}
+              >
+                重试失败文件 ({uploadState.failedFiles.length})
+              </Button>
+            </div>
+          )}
+
           {isDone && (
             <Button
               style={{ marginTop: 12 }}

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.dependencies import create_session, get_current_token
-from app.models.auth import AuthResponse, LoginRequest, TokenSetRequest
+from app.models.auth import AuthResponse, LoginRequest
 from app.services import fastgpt_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -20,16 +20,6 @@ async def login(req: LoginRequest):
         return AuthResponse(success=True, token=session_id, message="登录成功")
     except Exception as e:
         return AuthResponse(success=False, message=f"登录失败: {e}")
-
-
-@router.post("/token", response_model=AuthResponse)
-async def set_token(req: TokenSetRequest):
-    """手动设置 fastgpt token"""
-    valid = await fastgpt_service.validate_token(req.token)
-    if not valid:
-        return AuthResponse(success=False, message="token 无效")
-    session_id = create_session(req.token)
-    return AuthResponse(success=True, token=session_id, message="token 验证成功")
 
 
 @router.get("/check")

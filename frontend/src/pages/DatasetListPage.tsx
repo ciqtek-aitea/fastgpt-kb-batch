@@ -80,18 +80,40 @@ export default function DatasetListPage() {
     return <BookOutlined style={{ fontSize: 24, color: '#1677ff' }} />;
   };
 
-  // 获取活跃上传任务
-  const getActiveUploads = (): Record<string, string> => {
-    try {
-      return JSON.parse(localStorage.getItem('active_uploads') || '{}');
-    } catch {
-      return {};
-    }
-  };
+  // 获取活跃上传任务（排除已完成的）
+  const [activeUploads, setActiveUploads] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const checkActiveUploads = async () => {
+      try {
+        const raw = localStorage.getItem('active_uploads') || '{}';
+        const uploads: Record<string, string> = JSON.parse(raw);
+        const still: Record<string, string> = {};
+
+        await Promise.all(
+          Object.entries(uploads).map(async ([datasetId, taskId]) => {
+            try {
+              const resp = await fetch(`/api/upload/status/${taskId}`);
+              const res = await resp.json();
+              if (res.code === 200 && res.data?.phase && res.data.phase !== 'done') {
+                still[datasetId] = taskId;
+              }
+            } catch {
+              // 查询失败视为任务不存在，清理
+            }
+          })
+        );
+
+        localStorage.setItem('active_uploads', JSON.stringify(still));
+        setActiveUploads(still);
+      } catch {
+        setActiveUploads({});
+      }
+    };
+    checkActiveUploads();
+  }, []);
 
   if (loading) return <Spin size="large" style={{ display: 'block', marginTop: 100 }} />;
-
-  const activeUploads = getActiveUploads();
 
   return (
     <div>

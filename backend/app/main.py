@@ -7,6 +7,10 @@ import threading
 import webbrowser
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -27,7 +31,7 @@ app = FastAPI(
 # CORS — 开发模式允许 Vite dev server 访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,7 +60,6 @@ async def upload_websocket(websocket: WebSocket, task_id: str):
 
 # ---- 生产模式：serve 前端静态文件 ----
 if STATIC_DIR.exists():
-    # 静态资源（JS/CSS/图片等）
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
     @app.get("/")
@@ -85,4 +88,5 @@ if __name__ == "__main__":
     print(f"FastGPT 知识库批量上传工具已启动: {url}")
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     import uvicorn
+
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="warning")

@@ -7,6 +7,11 @@ interface FileProgress {
   percent: number;
 }
 
+interface FailedFile {
+  file: string;
+  error: string;
+}
+
 interface UploadState {
   phase: string;
   current: number;
@@ -16,6 +21,7 @@ interface UploadState {
   fileStatuses: { file: string; status: 'uploading' | 'done' | 'error'; percent?: number; error?: string }[];
   fileProgress: FileProgress | null;
   summary: { success: number; failed: number } | null;
+  failedFiles: FailedFile[];
 }
 
 export function useUploadProgress(taskId: string | null) {
@@ -28,6 +34,7 @@ export function useUploadProgress(taskId: string | null) {
     fileStatuses: [],
     fileProgress: null,
     summary: null,
+    failedFiles: [],
   });
 
   useEffect(() => {
@@ -92,13 +99,13 @@ export function useUploadProgress(taskId: string | null) {
                 newStatuses[lastUploading] = { ...newStatuses[lastUploading], status: 'done', percent: 100 };
               }
 
-              const successMatch = message.match(/已上传\s+\d+\/\d+:\s+(.+)/);
-              const failMatch = message.match(/上传失败\s+(.+?):\s+(.+)/);
+              const successMatch = message.match(/已完成\s+\d+\/\d+:\s+(.+?)(?:\s+失败)?$/);
+              const failMatch = message.match(/已完成\s+\d+\/\d+:\s+(.+?)\s+失败$/);
 
-              if (successMatch) {
+              if (failMatch) {
+                newStatuses.push({ file: failMatch[1], status: 'error', error: '上传失败' });
+              } else if (successMatch && !message.includes('失败')) {
                 newStatuses.push({ file: successMatch[1], status: 'done', percent: 100 });
-              } else if (failMatch) {
-                newStatuses.push({ file: failMatch[1], status: 'error', error: failMatch[2] });
               }
             }
           }
@@ -108,6 +115,7 @@ export function useUploadProgress(taskId: string | null) {
 
           // 上传完成时
           let summary = prev.summary;
+          let newFailedFiles = prev.failedFiles;
           if (phase === 'done') {
             const lastUploading = newStatuses.findIndex(s => s.status === 'uploading');
             if (lastUploading >= 0) {
@@ -117,6 +125,10 @@ export function useUploadProgress(taskId: string | null) {
             const failed = failMatch ? parseInt(failMatch[1]) : 0;
             const success = Math.round(current) - failed;
             summary = { success, failed };
+            // 从后端获取失败文件列表
+            if (msg.failedFiles) {
+              newFailedFiles = msg.failedFiles;
+            }
           }
 
           return {
@@ -128,6 +140,7 @@ export function useUploadProgress(taskId: string | null) {
             fileStatuses: newStatuses,
             fileProgress: fileProgress ?? prev.fileProgress,
             summary: summary ?? prev.summary,
+            failedFiles: newFailedFiles,
           };
         });
       } catch (e) {

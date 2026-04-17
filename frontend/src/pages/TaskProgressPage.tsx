@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Typography, Button, Tag, Progress, Card, Empty, Spin,
+  Typography, Button, Tag, Progress, Card, Empty, Spin, message,
 } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 
@@ -15,6 +15,7 @@ interface TaskInfo {
   total: number;
   message: string;
   fileProgress?: { name: string; sent: number; total: number; percent: number };
+  failedFiles?: { file: string; error: string }[];
 }
 
 export default function TaskProgressPage() {
@@ -65,6 +66,7 @@ export default function TaskProgressPage() {
               total: msg.total || 0,
               message: msg.message || '',
               fileProgress: msg.fileProgress,
+              failedFiles: msg.failedFiles || prev[tid]?.failedFiles,
             },
           }));
         } catch { /* ignore */ }
@@ -129,9 +131,54 @@ export default function TaskProgressPage() {
                 )}
 
                 {isDone && (
-                  <div style={{ marginTop: 4, display: 'flex', gap: 4 }}>
-                    <Tag color="green" style={{ fontSize: 11 }}>成功: {success}</Tag>
-                    {failed > 0 && <Tag color="red" style={{ fontSize: 11 }}>失败: {failed}</Tag>}
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <Tag color="green" style={{ fontSize: 11 }}>成功: {success}</Tag>
+                      {failed > 0 && <Tag color="red" style={{ fontSize: 11 }}>失败: {failed}</Tag>}
+                    </div>
+                    {task.failedFiles && task.failedFiles.length > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ maxHeight: 100, overflow: 'auto', background: '#fff2f0', borderRadius: 4, padding: '4px 8px', marginBottom: 4 }}>
+                          {task.failedFiles.map((f, i) => (
+                            <div key={i} style={{ fontSize: 11, padding: '1px 0', color: '#ff4d4f' }}>
+                              ✗ {f.file}
+                            </div>
+                          ))}
+                        </div>
+                        <Button
+                          size="small"
+                          type="primary"
+                          danger
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const resp = await fetch('/api/upload/retry', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  Authorization: `Bearer ${localStorage.getItem('session_token')}`,
+                                },
+                                body: JSON.stringify({ taskId: task.taskId }),
+                              });
+                              const res = await resp.json();
+                              if (res.code === 200 && res.data?.taskId) {
+                                message.success('重试任务已启动');
+                                // 刷新任务列表
+                                const tasksResp = await fetch('/api/upload/tasks');
+                                const tasksRes = await tasksResp.json();
+                                if (tasksRes.code === 200) setTasks(tasksRes.data);
+                              } else {
+                                message.error(res.message || '重试失败');
+                              }
+                            } catch {
+                              message.error('重试请求失败');
+                            }
+                          }}
+                        >
+                          重试失败文件 ({task.failedFiles.length})
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>
