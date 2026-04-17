@@ -47,14 +47,28 @@ def main():
         print("仅构建前端，跳过打包")
         return
 
+    # 优先使用 venv 中的 Python
+    venv_python = BACKEND / "venv" / "bin" / "python"
+    if venv_python.exists():
+        print(f"使用 venv: {venv_python}")
+        python = str(venv_python)
+    else:
+        python = sys.executable
+
     # 检查 PyInstaller
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
         print("安装 PyInstaller...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
+        subprocess.run([python, "-m", "pip", "install", "pyinstaller"], check=True)
 
-    build_executable()
+    # 用 venv Python 执行打包
+    subprocess.run(
+        [python, "-m", "PyInstaller", str(ROOT / "fastgpt-kb-batch.spec"), "--noconfirm"],
+        cwd=BACKEND,
+        check=True,
+    )
+    print("打包完成！")
 
     # 输出文件位置
     exe_name = "fastgpt-kb-batch.exe" if sys.platform == "win32" else "fastgpt-kb-batch"

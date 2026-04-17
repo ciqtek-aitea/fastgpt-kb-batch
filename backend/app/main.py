@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import socket
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -19,7 +21,13 @@ from fastapi.staticfiles import StaticFiles
 from app.routers import auth, collections, datasets, filesystem, upload
 from app.ws.progress import progress_manager
 
-STATIC_DIR = Path(__file__).parent / "static"
+# PyInstaller 单文件模式：资源解压到 sys._MEIPASS 临时目录
+if getattr(sys, "frozen", False):
+    _BASE_DIR = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    _BASE_DIR = Path(__file__).resolve().parent
+
+STATIC_DIR = _BASE_DIR / "app" / "static"
 
 app = FastAPI(
     title="FastGPT Web API",
@@ -89,4 +97,4 @@ if __name__ == "__main__":
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="warning")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
